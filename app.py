@@ -195,17 +195,13 @@ with tab1:
         low_fare = float(low.avg_fare)
 
         delta = peak_fare - low_fare
-        pct_change = (delta / low_fare) * 100 if low_fare != 0 else 0
-
+        pct_change = (delta / low_fare * 100) if low_fare != 0 else 0
         st.write(
-            f"""
-            **Insight:**  
-            Average fare changes a lot depending on the hour. The highest point shows up around **{peak_hour}:00** at **${peak_fare:.2f}**, while the lowest is around **{low_hour}:00** at **${low_fare:.2f}**. That’s a gap of **${delta:.2f}** (about **{pct_change:.1f}%** higher than the low point).
+    """**Insight:**  
+Average fare changes noticeably throughout the day. There are clear periods where fares peak and others where they dip, indicating that pricing is not evenly distributed across hours.
 
-            What this suggests is that the trips happening during the peak hour tend to be “bigger” rides in some way — either longer distances, longer time on the road, or just more expensive trips overall. Meanwhile, the low hour looks like a period where rides are generally cheaper, which usually lines up with shorter or more local trips.
-            """
-        )
-
+This suggests that the types of trips occurring during higher-fare hours are different from those during lower-fare hours. Peak periods likely reflect longer or more expensive rides, while lower-fare hours tend to consist of shorter or more routine trips."""
+)
     st.divider()
 
     # t) Histogram: Trip distance distribution
