@@ -2,6 +2,3 @@ streamlit
 duckdb
 pandas
 plotly
-git add requirements.txt
-git commit -m "Added requirements.txt for deployment"
-git push
