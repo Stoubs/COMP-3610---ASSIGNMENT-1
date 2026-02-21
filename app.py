@@ -198,10 +198,12 @@ with tab1:
         tenth_share = (tenth_count / total_trips) * 100
 
         st.write(
-            f"In the filtered data, the busiest pickup zone is {top_zone} with {top_count:,} trips "
-            f"({top_share:.2f}% of all filtered trips). "
-            f"The 10th zone in the top-10 list is {tenth_zone} with {tenth_count:,} trips "
-            f"({tenth_share:.2f}%), which shows how trip demand is concentrated in a small set of pickup locations."
+            f"After applying the date, hour, and payment filters, {top_zone} comes out on top with {top_count:,} pickups "
+            f"({top_share:.2f}% of the trips you’re currently looking at). "
+            f"By the time you get down to the 10th zone ({tenth_zone}), the count drops to {tenth_count:,} trips "
+            f"({tenth_share:.2f}%). "
+            f"That gap is a sign that demand is not evenly distributed across the city—there are a few zones that dominate pickup activity, "
+            f"which is exactly what you’d expect in a taxi dataset where hotspots (busy commercial areas, transit hubs, nightlife zones) generate a lot more trips than quiet residential areas."
         )
 
     st.divider()
@@ -227,10 +229,12 @@ with tab1:
         low = df_s.loc[df_s["avg_fare"].idxmin()]
 
         st.write(
-            f"The line chart shows how the average fare changes across pickup hours in the filtered data. "
-            f"The highest average fare occurs around {int(peak.pickup_hour)}:00 at ${float(peak.avg_fare):.2f}, "
-            f"while the lowest average fare occurs around {int(low.pickup_hour)}:00 at ${float(low.avg_fare):.2f}. "
-            f"This indicates that certain hours tend to have higher-cost trips compared to others."
+            f"This line chart looks at how trip cost changes across the day. Each point is the average fare for all trips that started in that hour, "
+            f"so you’re seeing a time-of-day pattern rather than individual rides. "
+            f"In the filtered data, the highest average fare shows up around {int(peak.pickup_hour)}:00 at ${float(peak.avg_fare):.2f}, "
+            f"and the lowest average fare is around {int(low.pickup_hour)}:00 at ${float(low.avg_fare):.2f}. "
+            f"A practical interpretation is that the “mix” of trips changes over the day—at some hours, trips tend to be longer, or travel through heavier traffic, "
+            f"or include more airport-type rides, which pushes the average fare up. At other hours, the rides are more local and cheaper on average."
         )
 
     st.divider()
@@ -264,9 +268,12 @@ with tab1:
         """).fetchone()[0]
 
         st.write(
-            f"The histogram shows that trip distances are mostly concentrated at shorter values in the filtered data. "
-            f"The median trip distance is {median_dist} miles, meaning half of trips are shorter than {median_dist} miles. "
-            f"About {short_share}% of trips are 2 miles or less, which matches the high frequency of short-distance bins."
+            f"This histogram is showing the shape of the distance distribution, which is one of the first things you’d check in a taxi dataset. "
+            f"Most of the mass is packed toward the left, meaning short trips are very common and long trips are comparatively rare. "
+            f"Using the median helps summarize that skew: the median distance is {median_dist} miles, so 50% of trips are at or below {median_dist} miles. "
+            f"When you zoom in on very short rides, {short_share}% of trips are 2 miles or less, which lines up with the high bars near the smallest distances. "
+            f"In analytics terms, this is a right-skewed distribution, and it’s a reminder that averages can be pulled upward by a smaller number of long rides, "
+            f"so looking at medians and percent splits gives a clearer picture of what a “typical” trip looks like."
         )
 
     st.divider()
@@ -301,15 +308,16 @@ with tab1:
             second = df_u_sorted.iloc[1]
             second_pct = (second.trip_count / df_u_sorted.trip_count.sum()) * 100
             st.write(
-                f"The pie chart breaks down trips by payment method in the filtered data. "
-                f"{top_p.payment_name} is the most common method at {top_pct:.2f}% of trips, "
-                f"followed by {second.payment_name} at {second_pct:.2f}%. "
-                f"This shows which payment methods dominate under the current filters."
+                f"This pie chart is a quick way to see rider behavior at the payment step. It’s counting trips by payment_type and turning that into percentages. "
+                f"In the filtered data, {top_p.payment_name} is clearly the main payment method at {top_pct:.2f}% of trips, "
+                f"and {second.payment_name} is next at {second_pct:.2f}%. "
+                f"Because the same filters apply here, this chart is useful for comparing scenarios rather than claiming a single global truth about all taxi trips."
             )
         else:
             st.write(
-                f"The pie chart shows that {top_p.payment_name} accounts for {top_pct:.2f}% of trips in the filtered data. "
-                f"Only one payment category appears under the current filters, so the distribution is fully concentrated in that method."
+                f"This pie chart shows that {top_p.payment_name} makes up {top_pct:.2f}% of trips in the filtered data. "
+                f"With the current filters, every trip falls into the same payment category, so you don’t see a split. "
+                f"If you widen the filters (for example, expand the date or hour range), you would normally expect more payment categories to appear and the pie to diversify."
             )
 
     st.divider()
@@ -358,14 +366,11 @@ with tab1:
         busiest_day_trips = int(busiest_day_row["trip_count"])
 
         st.write(
-            f"The heatmap shows how pickup volume varies by day of week and hour in the filtered data. "
-            f"The single busiest day-hour cell is {peak_cell.day_of_week} around {int(peak_cell.pickup_hour)}:00 "
-            f"with {int(peak_cell.trip_count):,} trips. "
-            f"Across all hours shown, {busiest_day} has the highest total pickups with {busiest_day_trips:,} trips."
+            f"This heatmap is basically the weekly rhythm of taxi demand compressed into one view. "
+            f"Each cell is a count of trips for a specific day-of-week and hour-of-day combination, and the color intensity increases as the trip count increases. "
+            f"In the filtered data, the single busiest cell is {peak_cell.day_of_week} around {int(peak_cell.pickup_hour)}:00, with {int(peak_cell.trip_count):,} trips in that one slot. "
+            f"When you add up the cells across hours, {busiest_day} ends up being the busiest overall day in the current view with {busiest_day_trips:,} trips. "
+            f"The main value here is that you can immediately spot peak windows (where demand clusters) versus quieter periods, and then compare how those patterns shift when you change filters. "
+            f"This is the kind of visualization that helps you move from “there are lots of trips” to “there are predictable, repeatable peaks in time that drive most of the activity.”"
         )
 
-with tab2:
-    st.write(
-        "This prototype confirms the required metrics and exactly five required visualizations render correctly. "
-        "Filters update all charts and metrics based on the selected date range, hour range, and payment types."
-    )
