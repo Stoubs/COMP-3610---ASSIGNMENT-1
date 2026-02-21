@@ -14,7 +14,7 @@ TRIPS_URL = (
 )
 ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
 
-# ✅ ONLY CHANGE: use a sample of the parquet instead of the full dataset
+#  use a sample of the parquet instead of the full dataset
 SAMPLE_PERCENT = 1
 TRIPS_SOURCE = f"read_parquet('{TRIPS_URL}') USING SAMPLE {SAMPLE_PERCENT} PERCENT"
 
@@ -52,7 +52,7 @@ pio.templates.default = "plotly_dark"
 st.set_page_config(page_title="NYC Taxi Dashboard", layout="wide")
 
 
-# ---------- Page Title + Intro (7) ----------
+# ---------- Page Title + Intro 
 st.title("NYC Yellow Taxi Dashboard")
 st.write(
     "This dashboard summarizes NYC Yellow Taxi trips using key metrics and 5 required visualizations. "
@@ -98,7 +98,7 @@ selected_payments = st.sidebar.multiselect(
     default=pay_options
 )
 
-# map selected payment names back to codes (simple)
+# map selected payment names back to codes 
 selected_codes = []
 for code, name in payment_labels.items():
     if name in selected_payments:
@@ -110,7 +110,7 @@ for opt in selected_payments:
         except:
             pass
 
-# build WHERE clause (simple)
+# build WHERE clause 
 start_date = date_range[0]
 end_date = date_range[1]
 h1, h2 = hour_range
@@ -123,7 +123,7 @@ WHERE DATE(tpep_pickup_datetime) BETWEEN '{start_date}' AND '{end_date}'
   AND payment_type IN {codes_sql}
 """
 
-# ---------- Metrics (8) ----------
+# ---------- Metrics 
 # total_amount exists in TLC data usually; fallback is fare+tip
 try:
     metrics = con.execute(f"""
@@ -157,7 +157,7 @@ c5.metric("Avg trip duration", f"{metrics.avg_duration_min:.2f} min")
 
 st.divider()
 
-# ---------- Dashboard Structure (7): Tabs ----------
+# ---------- Dashboard Structure 
 tab1, tab2 = st.tabs(["Visualizations", "Notes"])
 
 with tab1:
@@ -187,11 +187,22 @@ with tab1:
     st.plotly_chart(fig_r, use_container_width=True)
 
     if len(df_r) > 0 and metrics.total_trips > 0:
+        total_trips = int(metrics.total_trips)
+
         top_zone = df_r.iloc[0]["pickup_zone"]
         top_count = int(df_r.iloc[0]["trip_count"])
-        top_share = (top_count / int(metrics.total_trips)) * 100
-        st.write(f"**Insight:** The busiest pickup zone is **{top_zone}** with **{top_count:,} trips** "
-                 f"({top_share:.2f}% of the filtered trips).")
+        top_share = (top_count / total_trips) * 100
+
+        tenth_zone = df_r.iloc[-1]["pickup_zone"]
+        tenth_count = int(df_r.iloc[-1]["trip_count"])
+        tenth_share = (tenth_count / total_trips) * 100
+
+        st.write(
+            f"In the filtered data, the busiest pickup zone is {top_zone} with {top_count:,} trips "
+            f"({top_share:.2f}% of all filtered trips). "
+            f"The 10th zone in the top-10 list is {tenth_zone} with {tenth_count:,} trips "
+            f"({tenth_share:.2f}%), which shows how trip demand is concentrated in a small set of pickup locations."
+        )
 
     st.divider()
 
@@ -213,8 +224,14 @@ with tab1:
 
     if len(df_s) > 0:
         peak = df_s.loc[df_s["avg_fare"].idxmax()]
-        st.write(f"**Insight:** The highest average fare occurs around **{int(peak.pickup_hour)}:00** "
-                 f"with an average fare of **${float(peak.avg_fare):.2f}** in the filtered data.")
+        low = df_s.loc[df_s["avg_fare"].idxmin()]
+
+        st.write(
+            f"The line chart shows how the average fare changes across pickup hours in the filtered data. "
+            f"The highest average fare occurs around {int(peak.pickup_hour)}:00 at ${float(peak.avg_fare):.2f}, "
+            f"while the lowest average fare occurs around {int(low.pickup_hour)}:00 at ${float(low.avg_fare):.2f}. "
+            f"This indicates that certain hours tend to have higher-cost trips compared to others."
+        )
 
     st.divider()
 
@@ -246,8 +263,11 @@ with tab1:
           AND trip_distance > 0 AND trip_distance <= 50
         """).fetchone()[0]
 
-        st.write(f"**Insight:** The median trip distance is **{median_dist} miles**, and about **{short_share}%** "
-                 f"of trips are **2 miles or less**, showing many short rides.")
+        st.write(
+            f"The histogram shows that trip distances are mostly concentrated at shorter values in the filtered data. "
+            f"The median trip distance is {median_dist} miles, meaning half of trips are shorter than {median_dist} miles. "
+            f"About {short_share}% of trips are 2 miles or less, which matches the high frequency of short-distance bins."
+        )
 
     st.divider()
 
@@ -276,12 +296,21 @@ with tab1:
         df_u_sorted = df_u.sort_values("trip_count", ascending=False).reset_index(drop=True)
         top_p = df_u_sorted.iloc[0]
         top_pct = (top_p.trip_count / df_u_sorted.trip_count.sum()) * 100
-        msg = f"**Insight:** **{top_p.payment_name}** is the most common payment method at **{top_pct:.2f}%** of trips."
+
         if len(df_u_sorted) > 1:
             second = df_u_sorted.iloc[1]
             second_pct = (second.trip_count / df_u_sorted.trip_count.sum()) * 100
-            msg += f" The second most common is **{second.payment_name}** at **{second_pct:.2f}%**."
-        st.write(msg)
+            st.write(
+                f"The pie chart breaks down trips by payment method in the filtered data. "
+                f"{top_p.payment_name} is the most common method at {top_pct:.2f}% of trips, "
+                f"followed by {second.payment_name} at {second_pct:.2f}%. "
+                f"This shows which payment methods dominate under the current filters."
+            )
+        else:
+            st.write(
+                f"The pie chart shows that {top_p.payment_name} accounts for {top_pct:.2f}% of trips in the filtered data. "
+                f"Only one payment category appears under the current filters, so the distribution is fully concentrated in that method."
+            )
 
     st.divider()
 
@@ -322,8 +351,18 @@ with tab1:
 
     if len(df_v) > 0:
         peak_cell = df_v.loc[df_v["trip_count"].idxmax()]
-        st.write(f"**Insight:** The busiest time in the filtered data is **{peak_cell.day_of_week}** around "
-                 f"**{int(peak_cell.pickup_hour)}:00**, with **{int(peak_cell.trip_count):,} trips** in that cell.")
+
+        day_totals = df_v.groupby("day_of_week", observed=True)["trip_count"].sum().reset_index()
+        busiest_day_row = day_totals.loc[day_totals["trip_count"].idxmax()]
+        busiest_day = busiest_day_row["day_of_week"]
+        busiest_day_trips = int(busiest_day_row["trip_count"])
+
+        st.write(
+            f"The heatmap shows how pickup volume varies by day of week and hour in the filtered data. "
+            f"The single busiest day-hour cell is {peak_cell.day_of_week} around {int(peak_cell.pickup_hour)}:00 "
+            f"with {int(peak_cell.trip_count):,} trips. "
+            f"Across all hours shown, {busiest_day} has the highest total pickups with {busiest_day_trips:,} trips."
+        )
 
 with tab2:
     st.write(
