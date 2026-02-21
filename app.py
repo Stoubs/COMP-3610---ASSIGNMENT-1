@@ -3,45 +3,6 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.io as pio
-import os
-import urllib.request
-import streamlit as st
-
-con = duckdb.connect("taxi.duckdb")
-
-TRIPS_URL = (
-    "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet"
-)
-ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
-
-os.makedirs("data/raw", exist_ok=True)
-
-trips_path = "data/raw/yellow_tripdata_2024-01.parquet"
-zones_path = "data/raw/taxi_zone_lookup.csv"
-
-
-def download_if_missing(url, path):
-    if not os.path.exists(path):
-        st.write(f"Downloading {os.path.basename(path)}...")
-        urllib.request.urlretrieve(url, path)
-
-
-download_if_missing(TRIPS_URL, trips_path)
-download_if_missing(ZONES_URL, zones_path)
-
-has_trips = con.execute("""
-SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'trips'
-""").fetchone()[0]
-
-has_zones = con.execute("""
-SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'zones'
-""").fetchone()[0]
-
-if has_trips == 0:
-    con.execute(f"CREATE TABLE trips AS SELECT * FROM read_parquet('{trips_path}')")
-
-if has_zones == 0:
-    con.execute(f"CREATE TABLE zones AS SELECT * FROM read_csv_auto('{zones_path}')")
 
 # ---------------- App config ----------------
 pio.templates.default = "plotly_dark"
@@ -53,11 +14,16 @@ st.write(
     "Use the filters in the sidebar to explore patterns by date, hour, and payment type."
 )
 
-# ---------------- Data sources (cloud-safe) ----------------
-TRIPS_URL = (
-    "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet"
-)
+# ---------------- Data sources ----------------
+TRIPS_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet"
 ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
+
+# ✅ SAMPLE: change this if needed (1, 2, 5, 10)
+SAMPLE_PERCENT = 2
+
+# We will reuse this in every query so the entire app uses the same sampled source
+TRIPS_SOURCE = f"read_parquet('{TRIPS_URL}') USING SAMPLE {SAMPLE_PERCENT} PERCENT"
+ZONES_SOURCE = f"read_csv_auto('{ZONES_URL}')"
 
 # ---------------- Helpers ----------------
 payment_labels = {
@@ -76,7 +42,7 @@ def get_date_bounds():
     SELECT
       MIN(CAST(tpep_pickup_datetime AS DATE)) AS min_date,
       MAX(CAST(tpep_pickup_datetime AS DATE)) AS max_date
-    FROM read_parquet('{TRIPS_URL}')
+    FROM {TRIPS_SOURCE}
     """
     return duckdb.query(q).fetchone()
 
@@ -85,16 +51,14 @@ def get_date_bounds():
 def get_distinct_payment_types():
     q = f"""
     SELECT DISTINCT payment_type
-    FROM read_parquet('{TRIPS_URL}')
+    FROM {TRIPS_SOURCE}
     ORDER BY payment_type
     """
     return duckdb.query(q).fetchdf()
 
 
 def build_where_clause(start_date, end_date, h1, h2, selected_codes):
-    codes_sql = (
-        "(" + ",".join(map(str, selected_codes)) + ")" if selected_codes else "(NULL)"
-    )
+    codes_sql = "(" + ",".join(map(str, selected_codes)) + ")" if selected_codes else "(NULL)"
     return f"""
     WHERE CAST(tpep_pickup_datetime AS DATE) BETWEEN '{start_date}' AND '{end_date}'
       AND EXTRACT('hour' FROM tpep_pickup_datetime) BETWEEN {h1} AND {h2}
@@ -113,18 +77,12 @@ date_range = st.sidebar.date_input(
 hour_range = st.sidebar.slider("Pickup hour range", 0, 23, (0, 23))
 
 df_pay = get_distinct_payment_types()
-pay_options = [
-    payment_labels.get(p, f"Other ({p})") for p in df_pay["payment_type"].tolist()
-]
+pay_options = [payment_labels.get(p, f"Other ({p})") for p in df_pay["payment_type"].tolist()]
 
-selected_payments = st.sidebar.multiselect(
-    "Payment types", options=pay_options, default=pay_options
-)
+selected_payments = st.sidebar.multiselect("Payment types", options=pay_options, default=pay_options)
 
 # map selected payment names back to codes
-selected_codes = [
-    code for code, name in payment_labels.items() if name in selected_payments
-]
+selected_codes = [code for code, name in payment_labels.items() if name in selected_payments]
 for opt in selected_payments:
     if opt.startswith("Other (") and opt.endswith(")"):
         raw = opt.replace("Other (", "").replace(")", "")
@@ -136,7 +94,6 @@ h1, h2 = hour_range
 
 where_clause = build_where_clause(start_date, end_date, h1, h2, selected_codes)
 
-
 # ---------------- Metrics ----------------
 @st.cache_data(show_spinner=False)
 def get_metrics(where_clause: str):
@@ -147,7 +104,7 @@ def get_metrics(where_clause: str):
       ROUND(SUM(total_amount), 2) AS total_revenue,
       ROUND(AVG(trip_distance), 2) AS avg_distance,
       ROUND(AVG(DATE_DIFF('minute', tpep_pickup_datetime, tpep_dropoff_datetime)), 2) AS avg_duration_min
-    FROM read_parquet('{TRIPS_URL}')
+    FROM {TRIPS_SOURCE}
     {where_clause}
     """
     return duckdb.query(q).fetchdf().iloc[0]
@@ -172,11 +129,11 @@ with tab1:
     def top_pickup_zones(where_clause: str):
         q = f"""
         WITH trips AS (
-          SELECT * FROM read_parquet('{TRIPS_URL}')
+          SELECT * FROM {TRIPS_SOURCE}
           {where_clause}
         ),
         zones AS (
-          SELECT * FROM read_csv_auto('{ZONES_URL}')
+          SELECT * FROM {ZONES_SOURCE}
         )
         SELECT
           z.Zone AS pickup_zone,
@@ -191,12 +148,7 @@ with tab1:
 
     df_r = top_pickup_zones(where_clause)
 
-    fig_r = px.bar(
-        df_r,
-        x="pickup_zone",
-        y="trip_count",
-        title="Top 10 Pickup Zones by Trip Count",
-    )
+    fig_r = px.bar(df_r, x="pickup_zone", y="trip_count", title="Top 10 Pickup Zones by Trip Count")
     fig_r.update_layout(margin=dict(l=40, r=20, t=60, b=160))
     fig_r.update_xaxes(tickangle=45)
     st.plotly_chart(fig_r, use_container_width=True)
@@ -225,7 +177,7 @@ The top 10 zones together account for **{top10_share:.2f}%**, showing demand is 
         SELECT
           EXTRACT('hour' FROM tpep_pickup_datetime) AS pickup_hour,
           ROUND(AVG(fare_amount), 2) AS avg_fare
-        FROM read_parquet('{TRIPS_URL}')
+        FROM {TRIPS_SOURCE}
         {where_clause}
         GROUP BY 1
         ORDER BY pickup_hour
@@ -233,13 +185,7 @@ The top 10 zones together account for **{top10_share:.2f}%**, showing demand is 
         return duckdb.query(q).fetchdf()
 
     df_s = avg_fare_by_hour(where_clause)
-    fig_s = px.line(
-        df_s,
-        x="pickup_hour",
-        y="avg_fare",
-        markers=True,
-        title="Average Fare by Hour of Day",
-    )
+    fig_s = px.line(df_s, x="pickup_hour", y="avg_fare", markers=True, title="Average Fare by Hour of Day")
     st.plotly_chart(fig_s, use_container_width=True)
 
     if len(df_s) > 0:
@@ -260,26 +206,21 @@ This suggests different trip types (short vs long, commute vs leisure) dominate 
     def trip_distances(where_clause: str):
         q = f"""
         SELECT trip_distance
-        FROM read_parquet('{TRIPS_URL}')
+        FROM {TRIPS_SOURCE}
         {where_clause}
           AND trip_distance > 0 AND trip_distance <= 50
         """
         return duckdb.query(q).fetchdf()
 
     df_t = trip_distances(where_clause)
-    fig_t = px.histogram(
-        df_t,
-        x="trip_distance",
-        nbins=40,
-        title="Distribution of Trip Distances (0–50 miles)",
-    )
+    fig_t = px.histogram(df_t, x="trip_distance", nbins=40, title="Distribution of Trip Distances (0–50 miles)")
     st.plotly_chart(fig_t, use_container_width=True)
 
     if len(df_t) > 0:
         median_dist = duckdb.query(
             f"""
             SELECT ROUND(MEDIAN(trip_distance), 2)
-            FROM read_parquet('{TRIPS_URL}')
+            FROM {TRIPS_SOURCE}
             {where_clause}
               AND trip_distance > 0 AND trip_distance <= 50
             """
@@ -288,7 +229,7 @@ This suggests different trip types (short vs long, commute vs leisure) dominate 
         short_share = duckdb.query(
             f"""
             SELECT ROUND(100.0 * SUM(CASE WHEN trip_distance <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
-            FROM read_parquet('{TRIPS_URL}')
+            FROM {TRIPS_SOURCE}
             {where_clause}
               AND trip_distance > 0 AND trip_distance <= 50
             """
@@ -309,7 +250,7 @@ This indicates most rides are quick local trips rather than long journeys.
     def payment_breakdown(where_clause: str):
         q = f"""
         SELECT payment_type, COUNT(*) AS trip_count
-        FROM read_parquet('{TRIPS_URL}')
+        FROM {TRIPS_SOURCE}
         {where_clause}
         GROUP BY 1
         ORDER BY trip_count DESC
@@ -319,9 +260,7 @@ This indicates most rides are quick local trips rather than long journeys.
     df_u = payment_breakdown(where_clause)
     df_u["payment_name"] = df_u["payment_type"].map(payment_labels).fillna("Other")
 
-    fig_u = px.pie(
-        df_u, names="payment_name", values="trip_count", title="Payment Type Breakdown"
-    )
+    fig_u = px.pie(df_u, names="payment_name", values="trip_count", title="Payment Type Breakdown")
     fig_u.update_traces(textinfo="percent+label")
     st.plotly_chart(fig_u, use_container_width=True)
 
@@ -347,7 +286,7 @@ That dominance suggests rider behavior is strongly skewed toward one payment sty
           EXTRACT('hour' FROM tpep_pickup_datetime) AS pickup_hour,
           COUNT(*) AS trip_count,
           EXTRACT('dow' FROM tpep_pickup_datetime) AS dow_num
-        FROM read_parquet('{TRIPS_URL}')
+        FROM {TRIPS_SOURCE}
         {where_clause}
         GROUP BY 1, 2, 4
         ORDER BY dow_num, pickup_hour
@@ -355,18 +294,8 @@ That dominance suggests rider behavior is strongly skewed toward one payment sty
         return duckdb.query(q).fetchdf()
 
     df_v = trips_by_dow_hour(where_clause)
-    dow_order = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
-    ]
-    df_v["day_of_week"] = pd.Categorical(
-        df_v["day_of_week"], categories=dow_order, ordered=True
-    )
+    dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    df_v["day_of_week"] = pd.Categorical(df_v["day_of_week"], categories=dow_order, ordered=True)
 
     fig_v = px.density_heatmap(
         df_v,
@@ -390,9 +319,10 @@ This indicates taxi demand follows a weekly rhythm (not just a daily one), with 
 
 with tab2:
     st.write(
-        """
+        f"""
 **Notes**
-- This deployed version reads the NYC TLC parquet file and zone lookup CSV directly (no local database file required).
-- This approach avoids file-locking issues and works on Streamlit Community Cloud.
+- This deployed version reads the TLC parquet file and zone lookup CSV directly.
+- It uses a **{SAMPLE_PERCENT}% sample** to run faster on Streamlit Cloud.
+- If it still crashes, set SAMPLE_PERCENT to 1.
 """
     )
